@@ -1,0 +1,12 @@
+dist
+__pycache__
+.vscode
+*.npy
+.ipynb_checkpoints
+
+# virtual environment
+venv
+.venv
+
+#generated videos
+video/

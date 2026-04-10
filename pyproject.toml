@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "coco-project-2026"
+version = "0.1.0"
+description = "\"A rocket lander gym environment, adjusted for the Computational Control course 2026\""
+authors = [
+    "Dylan Vogel <dyvogel@student.ethz.ch>",
+    "Gerasimos Maltezos <gmaltezos@student.ethz.ch>",
+    "Benjamin Stadler <bestadle@ethz.ch>",
+]
+license = "MIT"
+readme = "README.md"
+packages = [
+    { include = "coco_rocket_lander" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.15"
+numpy = "^2.4.4"
+gymnasium = {extras = ["box2d"], version = "^1.2.3"}
+cvxpy = "^1.8.2"
+moviepy = "^2.2.1"
+ipykernel = "^7.2.0"
+tqdm = "^4.67.3"
+otter-grader = "^6.1.6"
+matplotlib = "^3.10.8"
+pandas = "^3.0.2"
+jupyter = {extras = ["lab"], version = "^1.1.1"}
+mosek = "^11.1.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
