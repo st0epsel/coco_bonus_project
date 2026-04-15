@@ -56,24 +56,15 @@ cd coco_project_2026
 Alteratively, you can also clone via HTTPS, however, then you will need to enter your password for every push.
 
 
-### 3. Configure Poetry (Virtual Environment in Project)
+### 3. Install Python Dependencies
 
-As a personal preference, we tell poetry to create the virtual environment directly in the project folder:
-
-```bash
-poetry config virtualenvs.in-project true
-```
-
-Then, we ensure Poetry uses Python 3.13:
+Ensure Poetry uses Python 3.13:
 
 ```bash
 poetry env use python3.13
 ```
 
-
-### 3. Install Python Dependencies
-
-Lastly, to install the dependencies into our virtual environment, we simply call:
+Install the dependencies into our virtual environment:
 
 ```bash
 poetry install --no-root
@@ -96,7 +87,7 @@ This project includes **Jupyter notebooks** that can be run either:
 First, we install a new Jupyter Kernel:
 
 ```bash
-poetry run python -m ipykernel install --user --name project-coco-venv --display-name "Python COCO (.venv)"
+poetry run python -m ipykernel install --user --name coco --display-name "Computational Control"
 ```
 
 ###  Web Browser
@@ -118,7 +109,7 @@ Inside Jupyter:
 
 1. Open a notebook
 2. Click **Kernel → Change Kernel**
-3. Select: `Python COCO (.venv)`
+3. Select: `Computational Control`
 
 
 ### VS Code
