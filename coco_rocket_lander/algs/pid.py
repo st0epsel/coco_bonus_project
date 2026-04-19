@@ -1,23 +1,48 @@
 import abc
+import numpy as np
 
-class PID():
-    """ Called from the children of PID_Framework"""
-    def __init__(self, Kp, Ki, Kd):
-        self.Kp = Kp
-        self.Ki = Ki
-        self.Kd = Kd
-        self.accumulated_error = 0
+from coco_rocket_lander.algs.controller import Controller
 
-    def increment_intregral_error(self, error, pi_limit=3):
-        self.accumulated_error = self.accumulated_error + error
-        if (self.accumulated_error > pi_limit):
-            self.accumulated_error = pi_limit
-        elif (self.accumulated_error < pi_limit):
-            self.accumulated_error = -pi_limit
+class PID_controller(Controller):
+    """
+    PID controller: 3 decoupled PID controllers for
+    - main engine thrust (Fe)
+    - main engine angle (phi)
+    - side engine thrust (Fs)
+    """
 
-    def compute_output(self, error, dt_error):
-        self.increment_intregral_error(error)
-        return self.Kp * error + self.Ki * self.accumulated_error + self.Kd * dt_error
+    def __init__(self,
+                 Fe_PID_params, phi_PID_params, FsTheta_PID_params
+                 ):
+        """
+        Initialization of PID controller
+
+        Arguments
+        ---------
+        Fe_PID_params: list
+            List of PID parameters for the main engine thrust (Kp, Ki, Kd)
+        phi_PID_params: list
+            List of PID parameters for the main engine angle (Kp, Ki, Kd)
+        FsTheta_PID_params: list
+            List of PID parameters for the side engine thrust(Kp, Ki, Kd)
+        """
+        # Set up underlying PID controllers
+        self._pid_benchmark = PID_Benchmark(
+            Fe_PID_params, phi_PID_params, FsTheta_PID_params
+        )
+
+    def compute_action(self, state, env):
+        landing_position = env.get_landing_position()  # (x, y, theta) in [m, m, radians]
+
+        # offset so that (0, 0) is at landing position
+        pid_state = state
+        pid_state[0] = state[0] - landing_position[0]
+        pid_state[1] = state[1] - landing_position[1]
+
+        # get action
+        action = np.array(self._pid_benchmark.pid_algorithm(pid_state))
+        
+        return action
 
 class PID_Framework():
     """ Sets the skeleton code for the actual pid algorithms (children) to inherit. """
@@ -67,37 +92,6 @@ class PID_Benchmark(PID_Framework):
             Fs = 0
 
         return Fe, Fs, psi
-
-
-class PID_Heuristic_Benchmark(PID_Framework):
-    """ Heuristic PID Benchmark """
-
-    def __init__(self, ):
-        super(PID_Heuristic_Benchmark, self).__init__()
-        self.Fe = PID(10, 0, 10)
-        self.psi = PID(0.01, 0, 0.01)
-        self.Fs = PID(10, 0, 30)
-
-    def pid_algorithm(self, s, x_target, y_target):
-        dx, dy, vel_x, vel_y, theta, omega, legContact_left, legContact_right = s
-        # ------------------------------------------
-        x_error = x_target - theta
-        x_dterror = -omega
-        Fs = -self.Fs.compute_output(x_error, x_dterror)
-        # ------------------------------------------
-        y_error = y_target - dy
-        y_dterror = -vel_y
-        Fe = self.Fe.compute_output(y_error, y_dterror) - 1
-        # ------------------------------------------
-        theta_error = theta
-        theta_dterror = -omega - vel_x
-        psi = self.psi.compute_output(theta_error, theta_dterror)
-        # ------------------------------------------
-        if legContact_left and legContact_right:  # legs have contact
-            Fe = 0
-
-        return Fe, Fs, psi
-
 
 class PID_psi(PID_Framework):
     """ PID for controlling just the angle of the rocket nozzle. """
@@ -150,3 +144,22 @@ class PID_Fe(PID_Framework):
         if legContact_left and legContact_right:  # legs have contact
             Fe = 0
         return Fe
+
+class PID():
+    """ Called from the children of PID_Framework"""
+    def __init__(self, Kp, Ki, Kd):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.accumulated_error = 0
+
+    def increment_intregral_error(self, error, pi_limit=3):
+        self.accumulated_error = self.accumulated_error + error
+        if (self.accumulated_error > pi_limit):
+            self.accumulated_error = pi_limit
+        elif (self.accumulated_error < pi_limit):
+            self.accumulated_error = -pi_limit
+
+    def compute_output(self, error, dt_error):
+        self.increment_intregral_error(error)
+        return self.Kp * error + self.Ki * self.accumulated_error + self.Kd * dt_error

@@ -67,8 +67,10 @@ poetry env use python3.13
 Install the dependencies into our virtual environment:
 
 ```bash
-poetry install --no-root
+poetry install
 ```
+
+_Note_ If it fails, try to pass the flag `--no-root`.
 
 ### 4. Setup MOSEK
 

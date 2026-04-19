@@ -3,6 +3,7 @@ A Box2D environment for Gymnasium which emulates the Falcon 9 barge landing
 Original environment created by Reuben Ferrante
 
 Modifications by Dylan Vogel and Gerasimos Maltezos for the 2023 Computational Control course offered at ETH Zurich
+Further Modificaitons by Benjamin Stadler for the 2026 Computational Control course at ETHZ.
 
 """
 import copy
@@ -86,11 +87,19 @@ class RocketLander(gym.Env):
     # required by gymnasium
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
-    def __init__(self, args: Dict, render_mode=None):
+    def __init__(self,
+                 args: dict|UserArgs,
+                render_mode=None):
         """Constructor method"""
         # load the environment configuration
         self.cfg = EnvConfig()
-        self.args = UserArgs(**args)
+        if isinstance(args,dict):
+            self._args = UserArgs(**args)
+        elif isinstance(args, UserArgs):
+            self._args = args
+        else:
+            raise TypeError(f"args must be dict or UserArgs, got {type(args).__name__}")
+        self._parse_user_args()
 
         # environment
         self.world = Box2D.b2World(gravity=(0, self.cfg.gravity))
@@ -99,16 +108,16 @@ class RocketLander(gym.Env):
         self.action_space = spaces.Box(
             low=np.array(
                 [
-                    self.cfg.main_engine_thrust_limits[0],
-                    self.cfg.side_engine_thrust_limits[0],
-                    self.cfg.nozzle_angle_limits[0],
+                    self._actual_main_engine_thrust_limits[0],
+                    self._actual_side_engine_thrust_limits[0],
+                    self._actual_nozzle_angle_limit[0],
                 ]
             ),
             high=np.array(
                 [
-                    self.cfg.main_engine_thrust_limits[1],
-                    self.cfg.side_engine_thrust_limits[1],
-                    self.cfg.nozzle_angle_limits[1],
+                    self._actual_main_engine_thrust_limits[1],
+                    self._actual_side_engine_thrust_limits[1],
+                    self._actual_nozzle_angle_limit[1],
                 ]
             ),
             dtype=np.float64,
@@ -194,52 +203,52 @@ class RocketLander(gym.Env):
         # - Other state values can be set relatively error-free
         pos_x, pos_y = 0.5 * self.cfg.width, 0.9 * self.cfg.height
 
-        if self.args.initial_state is not None:
+        if self._args.initial_state is not None:
             assert (
-                len(self.args.initial_state) == 6
+                len(self._args.initial_state) == 6
             ), "Initial state is of incorrect length, should be length 6"
-            if self.args.random_initial_position:
+            if self._args.random_initial_position:
                 warnings.warn(
                     YELLOW
                     + "WARN: initial_state is set but the initial position will be randomized"
                     + ENDL
                 )
-            if self.args.initial_position:
+            if self._args.initial_position:
                 warnings.warn(
                     YELLOW
                     + "WARN: ignoring the initial_position setting since initial_state is set"
                     + ENDL
                 )
 
-            pos_x = self.args.initial_state[0] * self.cfg.width
-            pos_y = self.args.initial_state[1] * self.cfg.height
+            pos_x = self._args.initial_state[0] * self.cfg.width
+            pos_y = self._args.initial_state[1] * self.cfg.height
 
             new_state = {
-                "x_dot": self.args.initial_state[2],
-                "y_dot": self.args.initial_state[3],
-                "theta": self.args.initial_state[4],
-                "theta_dot": self.args.initial_state[5],
+                "x_dot": self._args.initial_state[2],
+                "y_dot": self._args.initial_state[3],
+                "theta": self._args.initial_state[4],
+                "theta_dot": self._args.initial_state[5],
             }
 
-        elif self.args.initial_position is not None:
+        elif self._args.initial_position is not None:
             assert (
-                len(self.args.initial_position) == 3
+                len(self._args.initial_position) == 3
             ), "Initial position is of incorrect length, should be length 3 (x, y, theta)"
-            if self.args.random_initial_position:
+            if self._args.random_initial_position:
                 warnings.warn(
                     YELLOW
                     + "WARN: initial_state is set but the initial position will be randomized"
                     + ENDL
                 )
 
-            pos_x = self.args.initial_position[0] * self.cfg.width
-            pos_y = self.args.initial_position[1] * self.cfg.height
+            pos_x = self._args.initial_position[0] * self.cfg.width
+            pos_y = self._args.initial_position[1] * self.cfg.height
 
             new_state = {
-                "theta": self.args.initial_position[2],
+                "theta": self._args.initial_position[2],
             }
 
-        if self.args.random_initial_position:
+        if self._args.random_initial_position:
             pos_x = np.random.uniform(0, 1) * self.cfg.width
             pos_y = np.random.uniform(0.4, 1) * self.cfg.height
             new_state = {"theta": np.random.uniform(-1, 1) * (self.cfg.theta_limit / 2)}
@@ -254,12 +263,12 @@ class RocketLander(gym.Env):
         self._create_clouds()
         self._create_barge()
 
-        if self.args.initial_barge_position is not None:
+        if self._args.initial_barge_position is not None:
             self.barge.position = (
-                self.args.initial_barge_position[0] * self.cfg.width,
+                self._args.initial_barge_position[0] * self.cfg.width,
                 self.barge.position[1],
             )
-            self.barge.angle = self.args.initial_barge_position[1]
+            self.barge.angle = self._args.initial_barge_position[1]
 
         self.initial_barge_position = list(self.barge.position) + [
             float(self.barge.angle)
@@ -292,8 +301,8 @@ class RocketLander(gym.Env):
         nozzle_angle = (
             np.clip(
                 nozzle_angle,
-                a_min=self.cfg.nozzle_angle_limits[0],
-                a_max=self.cfg.nozzle_angle_limits[1],
+                a_min=self._actual_nozzle_angle_limit[0],
+                a_max=self._actual_nozzle_angle_limit[1],
             )
             * self.cfg.max_nozzle_angle
         )
@@ -446,6 +455,43 @@ class RocketLander(gym.Env):
 
         self.lander_drawlist = []
 
+    def _parse_user_args(self):
+        """Parse UserArgs into custom configs
+        
+        Only is concerned with the rocket malfunction parameters"""
+
+        # validate ranges
+        RocketLander._validate_float_in_range(self._args.main_thruster_range, "main_thruster_name")
+        RocketLander._validate_float_in_range(self._args.side_thruster_range, "side_thruster_range")
+        RocketLander._validate_float_in_range(self._args.mass_correction_factor, "mass_correction_factor",
+                                      min_value=0.1,max_value=10.0)
+        RocketLander._validate_float_in_range(self._args.nozzle_angle_range, "nozzle_angle_range")
+
+        # set updated values with
+            # everything related to mass
+        self._actual_lander_density= self._args.mass_correction_factor*self.cfg.lander_density
+        self._actual_leg_spring_torque = self._args.mass_correction_factor*self.cfg.leg_spring_torque
+            # everything related to engine thrust limits
+        self._actual_main_engine_thrust_limits = tuple(
+            self._args.main_thruster_range*np.array(self.cfg.main_engine_thrust_limits))
+        self._actual_side_engine_thrust_limits = tuple(
+            self._args.side_thruster_range*np.array(self.cfg.side_engine_thrust_limits))
+            # everythign related to nozzle angle
+        self._actual_nozzle_angle_limit = tuple(
+            self._args.nozzle_angle_range*np.array(self.cfg.nozzle_angle_limits))
+        
+    def _validate_float_in_range(value, name, min_value=0.0, max_value=1.0):
+        """Helper Function: validates whether a value is a float and in a range."""
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise TypeError(f"{name} must be numeric, got {type(value).__name__}")
+
+        if not (min_value <= value <= max_value):
+            raise ValueError(
+                f"{name} must be between {min_value} and {max_value}, got {value}"
+            )
+
+        return True
+
     def __compute_reward(self, state: list, action: np.ndarray) -> float:
         """Generate an environment reward based on the current state and actions
         Our reward is based on the lunar lander continuous reward
@@ -491,8 +537,8 @@ class RocketLander(gym.Env):
 
             clipped_action = np.clip(
                 action[0],
-                a_min=self.cfg.main_engine_thrust_limits[0],
-                a_max=self.cfg.main_engine_thrust_limits[1],
+                a_min=self._actual_main_engine_thrust_limits[0],
+                a_max=self._actual_main_engine_thrust_limits[1],
             )
             cmd_engine_thrust = (
                 clipped_action * self.cfg.main_engine_thrust
@@ -530,7 +576,7 @@ class RocketLander(gym.Env):
 
             # scale with the lander_density
             particle = self._create_particle(
-                self.cfg.lander_density
+                self._actual_lander_density
                 * np.pi
                 * (30 / self.cfg.lander_scaling) ** 2
                 / self.cfg.scale
@@ -555,8 +601,8 @@ class RocketLander(gym.Env):
         if np.abs(action[1]) > 0:
             clipped_action = np.clip(
                 action[1],
-                a_min=self.cfg.side_engine_thrust_limits[0],
-                a_max=self.cfg.side_engine_thrust_limits[1],
+                a_min=self._actual_side_engine_thrust_limits[0],
+                a_max=self._actual_side_engine_thrust_limits[1],
             )
             cmd_side_engine_thrust = (
                 clipped_action * self.cfg.side_engine_thrust
@@ -613,7 +659,7 @@ class RocketLander(gym.Env):
 
             # scale with the lander_density
             particle = self._create_particle(
-                self.cfg.lander_density
+                self._actual_lander_density
                 * np.pi
                 * (20 / self.cfg.lander_scaling) ** 2
                 / self.cfg.scale
@@ -653,7 +699,7 @@ class RocketLander(gym.Env):
 
     def __apply_wind_disturbance(self):
         """Apply a wind force to the lander along the x-axis"""
-        if self.args.enable_wind and not (
+        if self._args.enable_wind and not (
             self.legs[0].ground_contact or self.legs[1].ground_contact
         ):
             wind_mag = (
@@ -671,7 +717,7 @@ class RocketLander(gym.Env):
 
     def __apply_barge_disturbance(self):
         """Apply x, y, theta offsets to the barge from the initial position"""
-        if self.args.enable_moving_barge:
+        if self._args.enable_moving_barge:
             x_rate = 0.01
             y_rate = 0.006
             theta_rate = 0.004
@@ -727,7 +773,7 @@ class RocketLander(gym.Env):
                         for x, y in self.cfg.lander_poly
                     ]
                 ),
-                density=self.cfg.lander_density,
+                density=self._actual_lander_density,
                 friction=0.1,
                 categoryBits=0x0010,
                 maskBits=0x0003,  # contact ground and sea
@@ -752,7 +798,7 @@ class RocketLander(gym.Env):
                             self.cfg.leg_height / (2 * self.cfg.scale),
                         )
                     ),
-                    density=self.cfg.lander_density,  # cannot assume massless because for some reason we need density to apply torque?
+                    density=self._actual_lander_density,  # cannot assume massless because for some reason we need density to apply torque?
                     friction=0.1,
                     restitution=0.0,
                     categoryBits=0x0020,
@@ -777,7 +823,7 @@ class RocketLander(gym.Env):
                 localAnchorB=(0, (self.cfg.leg_height / 2) / self.cfg.scale),
                 enableMotor=True,
                 enableLimit=True,
-                maxMotorTorque=self.cfg.leg_spring_torque,
+                maxMotorTorque=self._actual_leg_spring_torque,
                 motorSpeed=1.0 * i,
             )
 
@@ -802,7 +848,7 @@ class RocketLander(gym.Env):
                         for x, y in self.cfg.nozzle_poly
                     ]
                 ),
-                density=self.cfg.lander_density,
+                density=self._actual_lander_density,
                 friction=0.1,
                 categoryBits=0x0040,
                 maskBits=0x0003,  # contact sea and ground
@@ -825,9 +871,9 @@ class RocketLander(gym.Env):
             motorSpeed=0,
             referenceAngle=0,
             lowerAngle=self.cfg.max_nozzle_angle
-            * self.cfg.nozzle_angle_limits[0],
+            * self._actual_nozzle_angle_limit[0],
             upperAngle=self.cfg.max_nozzle_angle
-            * self.cfg.nozzle_angle_limits[1],
+            * self._actual_nozzle_angle_limit[1],
         )
 
         self.nozzle.joint = self.world.CreateJoint(revolute_joint)
@@ -1021,14 +1067,14 @@ class RocketLander(gym.Env):
         self._render_lander()
         self._render_environment()
 
-        if self.args.render_lander_center_position:
+        if self._args.render_lander_center_position:
             self._draw_marker(
                 x=self.lander.position.x,
                 y=self.lander.position.y,
                 theta=self.lander.angle,
                 color=(0, 0, 0),
             )
-        if self.args.render_landing_position:
+        if self._args.render_landing_position:
             landing_pos = self.get_landing_position()
             self._draw_marker(
                 x=landing_pos[0],

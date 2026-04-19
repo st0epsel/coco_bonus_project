@@ -5,8 +5,10 @@ import io
 from IPython.display import HTML
 from IPython import display as ipythondisplay
 
-from dataclasses import dataclass
-from typing import Optional, Tuple
+import gymnasium as gym
+
+from coco_rocket_lander.algs.controller import Controller
+from coco_rocket_lander.env.env_cfg import UserArgs
 
 def show_video(prefix: str):
     """
@@ -35,23 +37,48 @@ def show_video(prefix: str):
     else:
         print("Did not find any files ending with .mp4 in the video folder!")
 
-@dataclass
-class UserArgs:
-    """User arguments for tweaking the environment"""
+def simulate_controller(
+        controller: Controller,
+        user_args: dict|UserArgs = None,
+        video_name: str = None,
+) -> Controller:
+    """
+    Run a simulation with the provided environment and conroller
+    
+    Arguments
+    ---------
+    controller: Controller
+        Controller used in the simulation
+    user_args: UserArgs
+        Custom UserArgs to change environment, set to None for default values
+    video_name: str
+        Name of the output video automatically created in ./video; set to None for no video
+    """
+    # create environment
+    env = gym.make("coco_rocket_lander/RocketLander-v0", render_mode="rgb_array",
+                   args= {} if user_args is None else user_args)
+    if video_name is not None:
+        env = gym.wrappers.RecordVideo(env, 'video', episode_trigger = lambda x: True,
+                                       name_prefix=video_name)
 
-    initial_position: Optional[Tuple[float, ...]] = None  # 3-tuple (x, y, theta)
-    initial_state: Optional[
-        Tuple[float, ...]
-    ] = None  # 6-tuple (x, y, x_dot, y_dot, theta, theta_dot)
+    obs, info = env.reset(seed=0)  # specify a random seed for consistency
 
-    initial_barge_position: Optional[Tuple[float, ...]] = None  # 2-tuple (x, theta)
+    # run simulation loop
+    while True:
+        # get action from controller
+        action = controller.compute_action(
+            state=obs,
+            env=env.unwrapped
+        )
 
-    # render crosses at the rocket center of mass and landing position
-    render_landing_position: bool = True
-    render_lander_center_position: bool = True
+        # apply action
+        next_obs, rewards, done, _, info = env.step(action)
 
-    # disturbances, which should generally be left disabled
-    enable_wind: bool = False
-    enable_moving_barge: bool = False
+        # check if simulation ended
+        if done:
+            break
 
-    random_initial_position: bool = False
+        # update observations
+        obs = next_obs
+
+    env.close() # video is saved at this step
