@@ -377,9 +377,10 @@ class RocketLander(gym.Env):
         Returns:
             Tuple[float, float]: mass, inertia
         """
+        mass_actual = self.lander.mass + self.nozzle.mass + self.legs[0].mass + self.legs[1].mass
         return (
-            self.lander.mass + self.nozzle.mass + self.legs[0].mass + self.legs[1].mass,
-            self.lander.inertia,
+            mass_actual / self._args.mass_correction_factor,
+            self.lander.inertia / self._args.mass_correction_factor,
         )
 
     def get_dimensional_properties(self) -> Tuple[float, float]:
