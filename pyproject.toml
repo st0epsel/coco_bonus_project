@@ -26,6 +26,8 @@ matplotlib = "^3.10.8"
 pandas = "^3.0.2"
 jupyter = {extras = ["lab"], version = "^1.1.1"}
 mosek = "^11.1.10"
+scipy = "^1.17.1"
+pillow = ">11"
 
 
 [build-system]
