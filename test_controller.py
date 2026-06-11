@@ -11,9 +11,6 @@ from coco_rocket_lander.env import SystemModel
 from submission_folder.src.utils import get_total_impulse, get_unique_session_folder, simulate_controller, plot_trajectory_sets, plot_flight_history, evaluate_controller
 from submission_folder.src.user_args import UserArgs
 
-np.set_printoptions(precision=5, floatmode='fixed', suppress=True)
-
-
 SESSION_NAME = "extract_measurements"
 SESSION_FOLDER = get_unique_session_folder(f"video/{SESSION_NAME}")
 
@@ -67,7 +64,7 @@ metrics_to_plot = (
 evaluate_controller(
     controller=pid_controller,
     user_args=args,
-    out_dir=get_unique_session_folder(f"video/{SESSION_NAME}"),
+    out_dir=SESSION_FOLDER,
     kf_t = kf_t,
     metrics_to_plot = metrics_to_plot,
 )

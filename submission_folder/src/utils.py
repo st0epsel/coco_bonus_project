@@ -157,7 +157,6 @@ def simulate_controller(
             if current_frame is not None:
                 video_frames[step_index] = np.asarray(current_frame)
             frame_index += 1
-            print(f"    Extracted frame shape: {current_frame.shape if current_frame is not None else 'None'}")
 
         flight_records.append(
             {
@@ -236,9 +235,9 @@ def simulate_controller(
         obs = next_obs
         step_index += 1
     
-    print(f"len(video_frames) = {len(video_frames) if video_frames is not None else 'None'}, expected frames based on kf_times: {len(kf_times) if kf_times is not None else 'None'}")
+    #print(f"len(video_frames) = {len(video_frames) if video_frames is not None else 'None'}, expected frames based on kf_times: {len(kf_times) if kf_times is not None else 'None'}")
     if video_frames is not None and kf_times is not None and len(video_frames) < len(kf_times):
-        print(f"Extracting FINAL frame at step = {step_index}, time = {step_index / fps:.2f}s (frame {frame_index + 1} of {len(kf_times)})")
+        print(f"Extracting video frame at step = {step_index}, time = {step_index / fps:.2f}s (frame {frame_index + 1} of {len(kf_times)})")
         current_frame = env.render()
         if current_frame is not None:
             video_frames[step_index] = np.asarray(current_frame)
@@ -258,7 +257,7 @@ def simulate_controller(
         user_args_df.to_csv(video_path / user_args_name, index=False)
     
     if video_frames is not None and len(video_frames.keys()) == 0:
-            print("Warning: kf_times were provided but no video frames were extracted. This may be because the video file was not found or could not be read, or because the specified kf_times were outside the duration of the flight.")
+        print("Warning: kf_times were provided but no video frames were extracted. This may be because the video file was not found or could not be read, or because the specified kf_times were outside the duration of the flight.")
     
     if video_frames is not None and kf_times is not None and len(video_frames) != len(kf_times):
         print(f"Expected to extract {len(kf_times)} video frames based on kf_times, but extracted {len(video_frames)} frames.")
@@ -365,10 +364,10 @@ def evaluate_controller(
             The evaluation results.
     """
     total_sim_time = quick_sim(controller, user_args)
-    print(f"Total simulated time: {total_sim_time:.2f} seconds")
+    #print(f"Total simulated time: {total_sim_time:.2f} seconds")
 
     kf_t_s = tuple(t * total_sim_time for t in kf_t) if kf_t is not None else None
-    print(f"Keyframe times (s): {kf_t_s if kf_t_s is not None else 'None'}")
+    #print(f"Keyframe times (s): {kf_t_s if kf_t_s is not None else 'None'}")
 
     # Run the full simulation with video recording and data logging.
     video_name = f"evaluation_{controller.__class__.__name__}"

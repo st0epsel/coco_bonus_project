@@ -242,7 +242,7 @@ def plot_trajectory_sets(
 
     if save_dir is not None and created_figure:
         filename = Path(save_dir) / "trajectory.png"
-        print(f"        Saving trajectory plot to {filename}")
+        print(f"Saving trajectory plot to {filename} ...")
         if figure is not None:
             figure.tight_layout(rect=(0, 0, 0.8, 1))
             figure.savefig(
@@ -441,7 +441,6 @@ def plot_flight_history(
         twin_axis.tick_params(axis="y", labelsize=8)
         twin_axis.grid(False)
 
-        print(f"     Sample times: {sample_times_s}")
         for sample_time in sample_times_s:
             axis.axvline(
                 sample_time,
@@ -464,7 +463,7 @@ def plot_flight_history(
             axis.set_xlabel("Time [s]")
 
     figure_path = Path(save_dir) / "flight_history.png"
-    print(f"        Saving flight history plot to {figure_path}")
+    print(f"Saving flight history plot to {figure_path} ...")
     fig.savefig(figure_path, bbox_inches="tight", pad_inches=0.06)
     plt.close(fig)
 
