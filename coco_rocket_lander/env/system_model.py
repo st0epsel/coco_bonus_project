@@ -9,7 +9,7 @@ from typing import Tuple
 import numpy as np
 import scipy
 
-from ..env.rocketlander import RocketLander
+from coco_rocket_lander.env.rocketlander import RocketLander
 
 
 class SystemModel:

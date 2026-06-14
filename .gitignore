@@ -10,3 +10,9 @@ venv
 
 #generated videos
 video/
+
+submission_folder/results/
+
+*.png
+*.mp4
+*.csv

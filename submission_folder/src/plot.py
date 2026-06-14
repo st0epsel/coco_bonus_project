@@ -4,20 +4,22 @@ from typing import cast
 
 from matplotlib.figure import Figure
 import numpy as np
+import os
+from pathlib import Path
+from typing import cast
+
+from matplotlib.figure import Figure
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.gridspec import GridSpec
-from matplotlib.offsetbox import AnnotationBbox, OffsetImage
-from gymnasium.spaces import Box
-from IPython.display import HTML
-from IPython import display as ipythondisplay
 
 import gymnasium as gym
 
 from coco_rocket_lander.algs.controller import Controller
-from coco_rocket_lander.env.rocketlander import RocketLander
 from coco_rocket_lander.env.env_cfg import UserArgs
+from coco_rocket_lander.env.rocketlander import RocketLander
 
 
 def plot_trajectory_sets(
@@ -28,50 +30,20 @@ def plot_trajectory_sets(
         arrow_scale: float = 1.5,
         trajectory_labels: list[str] | None = None,
         save_dir: str | None = None,
-) -> Axes:
-    """
-    Plot one or more rocket flight trajectories on the same axes.
-
-    The helper expects the data produced by simulate_controller(): each DataFrame
-    should contain state history columns (x, y, theta, ...), controller outputs
-    (main_engine_thrust, nozzle_angle, ...), and goal columns (goal_x, goal_y,
-    goal_theta).
-
-    Parameters
-    ----------
-    trajectories:
-        List of flight logs, one per simulation run.
-    ax:
-        Existing Matplotlib axes to draw on. If None, a new figure is created.
-    arrow_count:
-        Number of nozzle arrows to draw per trajectory.
-    trajectory_labels:
-        Optional labels for the trajectory lines. If omitted, generic labels are used.
-    title:
-        Optional plot title.
-    save_dir:
-        Optional directory to save the plot.
-
-    Returns
-    -------
-    plt.Axes
-        The axes containing the plot.
-    """
-
-    def get_n_distinct_colors(n: int) -> list[tuple[float, float, float]]:
-        if n <= 0:
-            return []
-
-        colors = plt.cm.get_cmap('tab10', n)
-        return [colors(i)[:3] for i in range(n)]
-
+) -> Figure | None:
     if not trajectories:
         raise ValueError("trajectories must contain at least one DataFrame")
 
     if trajectory_labels is not None and len(trajectory_labels) != len(trajectories):
         raise ValueError("trajectory_labels must match the number of flight data sets")
-    
-    trajectory_colors = get_n_distinct_colors(len(trajectories)) # Distinct colors for each trajectory, with good visibility for the arrows and markers
+
+    def get_n_distinct_colors(n: int) -> list[tuple[float, float, float]]:
+        if n <= 0:
+            return []
+        colors = plt.cm.get_cmap("tab10", n)
+        return [colors(i)[:3] for i in range(n)]
+
+    trajectory_colors = get_n_distinct_colors(len(trajectories))
 
     x_values: list[np.ndarray] = []
     y_values: list[np.ndarray] = []
@@ -85,28 +57,28 @@ def plot_trajectory_sets(
             x_values.append(np.asarray([float(flight_data["goal_x"].iloc[0])], dtype=float))
             y_values.append(np.asarray([float(flight_data["goal_y"].iloc[0])], dtype=float))
 
-
-    created_figure = False
-    figure = None
+    created_fig = False
+    fig = None
     if ax is None:
-        figure, ax = plt.subplots(figsize=(9, 7))
-        created_figure = True
+        fig, ax = plt.subplots(figsize=(9, 7))
+        created_fig = True
 
-    # Plot each trajectory with its distinct color
     for index, flight_data in enumerate(trajectories):
         required_columns = {"x", "y", "theta", "main_engine_thrust", "nozzle_angle"}
         missing_columns = required_columns.difference(flight_data.columns)
         if missing_columns:
-            raise ValueError(f"Missing required columns in flight data set {index}: {sorted(missing_columns)}")
+            raise ValueError(
+                f"Missing required columns in flight data set {index}: {sorted(missing_columns)}"
+            )
 
         valid_positions = flight_data.dropna(subset=["x", "y"])
         if valid_positions.empty:
             continue
 
-
-        # Plot trajectory line
         trajectory_color = trajectory_colors[index]
-        trajectory_label = trajectory_labels[index] if trajectory_labels is not None else f"Trajectory {index + 1}"
+        trajectory_label = (
+            trajectory_labels[index] if trajectory_labels is not None else f"Trajectory {index + 1}"
+        )
 
         ax.plot(
             valid_positions["x"],
@@ -117,13 +89,12 @@ def plot_trajectory_sets(
             label=trajectory_label,
         )
 
-        # Start, End and Goal markers
         start_row = valid_positions.iloc[0]
         end_row = valid_positions.iloc[-1]
         goal_x = float(flight_data["goal_x"].iloc[0]) if "goal_x" in flight_data.columns else np.nan
         goal_y = float(flight_data["goal_y"].iloc[0]) if "goal_y" in flight_data.columns else np.nan
-        
-        start_handle = ax.scatter(
+
+        ax.scatter(
             start_row["x"],
             start_row["y"],
             s=90,
@@ -134,7 +105,7 @@ def plot_trajectory_sets(
             zorder=5,
             label="Start position" if index == 0 else None,
         )
-        end_handle = ax.scatter(
+        ax.scatter(
             end_row["x"],
             end_row["y"],
             s=100,
@@ -146,7 +117,7 @@ def plot_trajectory_sets(
             label="End position" if index == 0 else None,
         )
         if np.isfinite(goal_x) and np.isfinite(goal_y):
-            goal_handle = ax.scatter(
+            ax.scatter(
                 goal_x,
                 goal_y,
                 s=130,
@@ -157,10 +128,9 @@ def plot_trajectory_sets(
                 zorder=7,
                 label="Goal position" if index == 0 else None,
             )
-        
-        # Plot thrust arrows
+
         control_rows = flight_data.dropna(subset=["main_engine_thrust", "nozzle_angle", "theta"])
-        # Sum theta into nozzle angle to get the world frame angle of the thrust vector.
+        control_rows = control_rows.copy()
         control_rows["nozzle_angle"] = control_rows["theta"] + control_rows["nozzle_angle"]
         if control_rows.empty:
             continue
@@ -174,7 +144,6 @@ def plot_trajectory_sets(
             nozzle_deflection = float(np.clip(row["nozzle_angle"], -1.0, 1.0))
             world_nozzle_angle = float(row["theta"] + nozzle_deflection * (15 * np.pi / 180))
 
-            # keep a visible but proportional arrow so the sequence reads like a trajectory
             thrust_vector_scale = 0.15 + arrow_scale * thrust_strength
             arrow_dx = np.sin(world_nozzle_angle) * thrust_vector_scale
             arrow_dy = -np.cos(world_nozzle_angle) * thrust_vector_scale
@@ -201,24 +170,19 @@ def plot_trajectory_sets(
     ax.set_ylabel("y position [m]")
     ax.grid(True, alpha=0.25)
 
-    # Fit the view to the actual flight path content instead of the default axes span.
     if x_values and y_values:
         x_all = np.concatenate(x_values)
         y_all = np.concatenate(y_values)
         x_min, x_max = float(np.min(x_all)), float(np.max(x_all))
         y_min, y_max = float(np.min(y_all)), float(np.max(y_all))
-
         x_span = max(x_max - x_min, 1e-6)
         y_span = max(y_max - y_min, 1e-6)
         padding = 0.08 * max(x_span, y_span)
-
         ax.set_xlim(x_min - padding, x_max + padding)
         ax.set_ylim(y_min - padding, y_max + padding)
 
-    # 1:1 Aspect Ratio
     ax.set_aspect("equal", adjustable="box")
 
-    # Build a clean legend that keeps the trajectory lines and the three key markers.
     handles, labels = ax.get_legend_handles_labels()
     ordered_handles = []
     ordered_labels = []
@@ -240,63 +204,39 @@ def plot_trajectory_sets(
             borderaxespad=0.0,
         )
 
-    if save_dir is not None and created_figure:
+    if save_dir is not None and created_fig and fig is not None:
         filename = Path(save_dir) / "trajectory.png"
-        print(f"Saving trajectory plot to {filename} ...")
-        if figure is not None:
-            figure.tight_layout(rect=(0, 0, 0.8, 1))
-            figure.savefig(
-                filename,
-                bbox_inches="tight",
-                pad_inches=0.06,
-                bbox_extra_artists=(legend,) if legend is not None else None,
-            )
+        fig.tight_layout(rect=(0, 0, 0.8, 1))
+        fig.savefig(
+            filename,
+            bbox_inches="tight",
+            pad_inches=0.06,
+            bbox_extra_artists=(legend,) if legend is not None else None,
+        )
 
-    if created_figure and figure is not None:
-        figure.tight_layout(rect=(0, 0, 0.8, 1))
+    if created_fig and fig is not None:
+        fig.tight_layout(rect=(0, 0, 0.8, 1))
+    plt.close(fig)
+    return fig
 
-    return ax
 
 def plot_flight_history(
-        flight_data: pd.DataFrame, 
-        save_dir: str, 
-        video_data, 
-        video_timestamps_s,
-        fps,
-        metrics_to_plot = (
+        flight_data: pd.DataFrame,
+        save_dir: str,
+        video_data: dict[int, np.ndarray] | None = None,
+        video_timestamps_s: list[float] | tuple[float, ...] | None = None,
+        fps: float | int | None = None,
+        metrics_to_plot=(
             "Main thrust",
             "Nozzle angle",
             "Side thrust",
             "Normalized y",
             "Normalized theta",
             "Relative impulse",
+            "Max g",
         ),
-        plot_raw = False,
-    ) -> Figure:
-    """
-    Create horizontal pseudo-video (n frames from the video, evenly spaced in time, starting with the first control input and ending with the video)
-    Below the pseudo-video, show:
-        -  normalized main thruster output [0, 1]
-        - main thruster angle [-1, 1]
-        - normalized side thruster output [-1, 1]
-        - y position over time [0, 1]
-        - theta over time [-pi/2,pi/2]
-        - total impulse integral [0, 1] (percentage of total impulse used up to that point in the flight)
-    Total Impulse integral at the bottom of the image
-    with a vertical line indicating the current time step for each frame in the pseudo-video.
-
-    Args:
-        flight_data: pd.DataFrame
-            DataFrame containing the flight log, with columns for time, control inputs, and state history.
-        save_dir: str
-            Directory to save the resulting plot.
-        video_data: dict[int, np.ndarray] | None
-            Optional dictionary of video frames with corresponding timestamp keys, as extracted from the simulation video. If
-        rel_img_t: list[float] | None
-            Optional list of relative time points in the flight at which to sample frames for the pseudo-video, as a tuple of floats in [0, 1].
-    """
-    if video_data is not None and not isinstance(video_data, dict) and video_timestamps_s is not None:
-        assert len(video_data) == len(video_timestamps_s), "video_data and video_timestamps_s must have the same length if both are provided. Got video_data length {}, video_timestamps_s length {}".format(len(video_data), len(video_timestamps_s))
+        plot_raw: bool = False,
+) -> Figure | None:
     required_columns = [
         "time_s",
         "main_engine_thrust",
@@ -305,6 +245,7 @@ def plot_flight_history(
         "nozzle_angle_raw",
         "side_engine_thrust",
         "side_engine_thrust_raw",
+        "max_g",
         "y",
         "theta",
     ]
@@ -312,8 +253,7 @@ def plot_flight_history(
     if missing_columns:
         raise ValueError(f"flight_data is missing required columns: {missing_columns}")
 
-    plot_data = flight_data.dropna(subset=["time_s"]).copy()
-    plot_data = plot_data.sort_values("time_s").reset_index(drop=True)
+    plot_data = flight_data.dropna(subset=["time_s"]).copy().sort_values("time_s").reset_index(drop=True)
     if plot_data.empty:
         raise ValueError("flight_data does not contain any valid time samples")
 
@@ -340,9 +280,33 @@ def plot_flight_history(
     if np.isclose(t_min, t_max):
         t_max = t_min + 1.0
 
-    sample_times_s = video_timestamps_s if video_data is not None else []
+    has_video_frames = video_data is not None and len(video_data) > 0
+    if has_video_frames and video_timestamps_s is not None:
+        frame_count = len(cast(dict[int, np.ndarray], video_data))
+        if frame_count != len(video_timestamps_s):
+            raise ValueError(
+                "video_data and video_timestamps_s must have the same length if both are provided. "
+                f"Got video_data length {frame_count}, video_timestamps_s length {len(video_timestamps_s)}"
+            )
+
+    frame_count = len(cast(dict[int, np.ndarray], video_data)) if has_video_frames else 0
+    if has_video_frames and video_timestamps_s is not None:
+        sample_times_s = list(video_timestamps_s)
+    elif has_video_frames:
+        if fps is None:
+            raise ValueError("fps must be provided when video_data is supplied without video_timestamps_s")
+        sample_times_s = [index / float(fps) for index in range(frame_count)]
+    else:
+        sample_times_s = []
 
     available_metrics = [
+        {
+            "name": "Max g",
+            "column": "max_g",
+            "raw_column": None,
+            "scale": _safe_min_max(plot_data["max_g"]),
+            "color": "tab:gray",
+        },
         {
             "name": "Main thrust",
             "column": "main_engine_thrust",
@@ -386,54 +350,54 @@ def plot_flight_history(
             "color": "tab:brown",
         },
     ]
-    metrics = []
-    for metric in available_metrics:
-        if metric.get("name")  in metrics_to_plot:
-            metrics.append(metric)
 
-    # Create a figure with a grid layout: the top row for the pseudo-video frames, and one row per metric below.
-    fig = plt.figure(figsize=(18, 12))
+    available_metric_names = {metric["name"] for metric in available_metrics}
+    selected_metric_names = tuple(
+        metric["name"] if isinstance(metric, dict) else metric
+        for metric in metrics_to_plot
+    )
+    metrics = [metric for metric in available_metrics if metric["name"] in selected_metric_names]
+
+    fig = plt.figure(figsize=(12, 8))
+    video_rows = 1 if has_video_frames else 0
+    columns = max(1, frame_count if has_video_frames else 1)
     grid = GridSpec(
-        1 + len(metrics),
-        len(video_timestamps_s),
+        video_rows + len(metrics),
+        columns,
         figure=fig,
-        height_ratios=[1.35] + [0.72] * len(metrics),
+        height_ratios=([1.35] if has_video_frames else []) + [0.72] * len(metrics),
         hspace=0.22,
         wspace=0.05,
     )
 
-    # Top pseudo-video row.
-    for pos_index, (index, frame) in enumerate(video_data.items()):
-        frame_axis = fig.add_subplot(grid[0, pos_index])
-        frame_axis.imshow(frame)
-        frame_axis.set_axis_off()
-        frame_axis.set_title(f"t = {(index/fps):.2f} s", fontsize=10)
+    # Display Picture Roll
+    if has_video_frames:
+        frame_items = sorted(cast(dict[int, np.ndarray], video_data).items())
+        for pos_index, (index, frame) in enumerate(frame_items):
+            frame_axis = fig.add_subplot(grid[0, pos_index])
+            frame_axis.imshow(frame)
+            frame_axis.set_axis_off()
+            if video_timestamps_s is not None:
+                frame_time = float(video_timestamps_s[pos_index])
+            elif fps is not None:
+                frame_time = float(index) / float(fps)
+            else:
+                frame_time = float(index)
+            frame_axis.set_title(f"t = {frame_time:.2f} s", fontsize=10)
 
-    # Shared time axis data for all metric subplots.
-    for metric_index, metric in enumerate(metrics, start=1):
-        
+    # Display metrics
+    for metric_index, metric in enumerate(metrics, start=video_rows):
         axis = fig.add_subplot(grid[metric_index, :])
         column = metric["column"]
-        if column == "relative_total_impulse":
-            values = plot_data[column]
-        else:
-            values = pd.to_numeric(plot_data[column], errors="coerce")
+        values = plot_data[column] if column == "relative_total_impulse" else pd.to_numeric(plot_data[column], errors="coerce")
 
         lower, upper = metric["scale"]
-        if column in {"main_engine_thrust", "nozzle_angle", "side_engine_thrust"}:
-            series_for_plot = values
-        elif column == "relative_total_impulse":
-            series_for_plot = values
-        else:
-            series_for_plot = values
-
-        axis.plot(plot_data["time_s"], series_for_plot, color=metric["color"], linewidth=2.0)
+        axis.plot(plot_data["time_s"], values, color=metric["color"], linewidth=2.0)
         axis.set_ylabel(metric["name"])
         axis.set_xlim(t_min, t_max)
         axis.set_ylim(lower, upper)
         axis.grid(True, alpha=0.25)
 
-        # Add a right-side vertical axis showing the declared scale explicitly.
         twin_axis = axis.twinx()
         twin_axis.patch.set_visible(False)
         twin_axis.set_ylim(lower, upper)
@@ -457,14 +421,522 @@ def plot_flight_history(
                 raw_lower, raw_upper = _safe_min_max(raw_series)
                 if raw_upper > raw_lower:
                     normalized_raw = _normalize(raw_series, raw_lower, raw_upper)
-                    axis.plot(plot_data["time_s"], normalized_raw * (upper - lower) + lower, color=metric["color"], alpha=0.18, linewidth=1.0, linestyle="--")
+                    axis.plot(
+                        plot_data["time_s"],
+                        normalized_raw * (upper - lower) + lower,
+                        color=metric["color"],
+                        alpha=0.18,
+                        linewidth=1.0,
+                        linestyle="--",
+                    )
 
         if metric["name"] == "Relative impulse":
             axis.set_xlabel("Time [s]")
 
-    figure_path = Path(save_dir) / "flight_history.png"
-    print(f"Saving flight history plot to {figure_path} ...")
-    fig.savefig(figure_path, bbox_inches="tight", pad_inches=0.06)
+    fig_path = Path(save_dir) / "flight_history.png"
+    fig.savefig(fig_path, bbox_inches="tight", pad_inches=0.06)
     plt.close(fig)
-
     return fig
+
+
+def plot_trajectory_set_realistic(
+        trajectories: list[pd.DataFrame],
+        title: str | None = None,
+        ax: Axes | None = None,
+        trajectory_labels: list[str] | None = None,
+        trajectory_colors: list[tuple[float, float, float]] | None = None,
+        save_dir: str | None = None,
+        user_args: dict | UserArgs | None = None,
+) -> Figure | None:
+    if not trajectories:
+        raise ValueError("trajectories must contain at least one DataFrame")
+
+    if trajectory_labels is not None and len(trajectory_labels) != len(trajectories):
+        raise ValueError("trajectory_labels must match the number of flight data sets")
+
+    def get_n_distinct_colors(n: int) -> list[tuple[float, float, float]]:
+        if n <= 0:
+            return []
+        colors = plt.cm.get_cmap("tab10", n)
+        return [colors(i)[:3] for i in range(n)]
+
+    if trajectory_colors is None:
+        trajectory_colors = get_n_distinct_colors(len(trajectories))
+
+    env = gym.make(
+        "coco_rocket_lander/RocketLander-v0", 
+        render_mode="rgb_array",
+        args= {} if user_args is None else user_args
+    )
+
+    created_render_env = env is None
+    env_for_render = env if env is not None else gym.make(
+        "coco_rocket_lander/RocketLander-v0",
+        render_mode="rgb_array",
+        args={} if user_args is None else user_args,
+    )
+    env_for_render.reset()
+    bg_frame = env_for_render.render()
+    if bg_frame is None:
+        if created_render_env:
+            env_for_render.close()
+        raise RuntimeError("Environment rendering returned None; ensure render_mode='rgb_array'")
+
+    bg_frame = np.asarray(bg_frame, dtype=np.uint8)
+    cfg = cast(RocketLander, env_for_render.unwrapped).cfg
+    scale = cfg.scale
+    height = bg_frame.shape[0]
+
+    def world_to_pixel(x: float, y: float) -> tuple[float, float]:
+        return x * scale, height - (y * scale)
+
+    created_fig = False
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        created_fig = True
+
+    ax.imshow(bg_frame)
+    ax.set_axis_off()
+
+    start_drawn = False
+    goal_drawn = False
+    end_drawn = False
+
+    for index, flight_data in enumerate(trajectories):
+        required_columns = {"x", "y", "theta"}
+        missing_columns = required_columns.difference(flight_data.columns)
+        if missing_columns:
+            if created_render_env:
+                env_for_render.close()
+            raise ValueError(f"Missing required columns in trajectory {index}: {sorted(missing_columns)}")
+
+        valid_positions = flight_data.dropna(subset=["x", "y"])
+        if valid_positions.empty:
+            continue
+
+        trajectory_color = trajectory_colors[index]
+        trajectory_label = trajectory_labels[index] if trajectory_labels is not None else f"Trajectory {index + 1}"
+
+        xs_px = np.array([world_to_pixel(x, y)[0] for x, y in zip(valid_positions["x"], valid_positions["y"])])
+        ys_px = np.array([world_to_pixel(x, y)[1] for x, y in zip(valid_positions["x"], valid_positions["y"])])
+        ax.plot(xs_px, ys_px, color=trajectory_color, linewidth=2.5, alpha=0.85, label=trajectory_label, zorder=10)
+
+        start_row = valid_positions.iloc[0]
+        start_px, start_py = world_to_pixel(start_row["x"], start_row["y"])
+        ax.scatter(
+            start_px,
+            start_py,
+            s=150,
+            marker="o",
+            color=trajectory_color,
+            edgecolors="black",
+            linewidths=1.5,
+            zorder=15,
+            label="Start position" if not start_drawn else None,
+        )
+        start_drawn = True
+
+        if "goal_x" in flight_data.columns and "goal_y" in flight_data.columns:
+            goal_x = float(flight_data["goal_x"].iloc[0])
+            goal_y = float(flight_data["goal_y"].iloc[0])
+            goal_px, goal_py = world_to_pixel(goal_x, goal_y)
+            ax.scatter(
+                goal_px,
+                goal_py,
+                s=200,
+                marker="*",
+                color="cyan",
+                edgecolors="black",
+                linewidths=1.5,
+                zorder=16,
+                label="Goal position" if not goal_drawn else None,
+            )
+            goal_drawn = True
+
+        end_row = valid_positions.iloc[-1]
+        end_px, end_py = world_to_pixel(end_row["x"], end_row["y"])
+        ax.scatter(
+            end_px,
+            end_py,
+            s=120,
+            marker="X",
+            color=trajectory_color,
+            edgecolors="black",
+            linewidths=1.5,
+            zorder=14,
+            label="End position" if not end_drawn else None,
+        )
+        end_drawn = True
+
+    if title is not None:
+        ax.set_title(title, fontsize=14, fontweight="bold")
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        marker_labels = ("Start position", "Goal position", "End position")
+        ordered_handles = []
+        ordered_labels = []
+        seen_labels = set()
+
+        for target_label in marker_labels:
+            for handle, label in zip(handles, labels):
+                if label == target_label and label not in seen_labels:
+                    ordered_handles.append(handle)
+                    ordered_labels.append(label)
+                    seen_labels.add(label)
+                    break
+
+        for handle, label in zip(handles, labels):
+            if label in seen_labels:
+                continue
+            ordered_handles.append(handle)
+            ordered_labels.append(label)
+
+        ax.legend(
+            ordered_handles,
+            ordered_labels,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            fontsize=10,
+            framealpha=0.95,
+        )
+
+    if save_dir is not None and created_fig and fig is not None:
+        filename = Path(save_dir) / "trajectory_realistic.png"
+        fig.tight_layout()
+        fig.savefig(filename, bbox_inches="tight", pad_inches=0.1, dpi=100)
+
+    if created_fig and fig is not None:
+        fig.tight_layout()
+
+    if created_render_env:
+        env_for_render.close()
+    plt.close(fig)
+    return fig
+    cfg = cast(RocketLander, env.unwrapped).cfg
+
+    scale = cfg.scale
+
+
+def find_initial_pos_shape_for_malfunction(
+    controllers: Controller | list[Controller] | None = None,
+    controller_colors: list[str] | None = None,
+    perturbation_key: str = "main_thruster_range",
+    perturbation_range: tuple[float, float] = (0.5, 1.0),
+    p_steps: int = 9,
+    x_range: tuple[float, float] = (0.0, 2.5),
+    x_steps: int = 9,
+    trials: int = 1,
+    save_dir: str | None = None,
+    show_plot: bool = False,
+) -> tuple[Figure, pd.DataFrame]:
+    """
+    Trace the success boundary instead of evaluating the full grid.
+
+    The search starts at the lower-left corner of the requested range and traces the
+    clean boundary with continuation: for each next horizontal offset it reuses the
+    previous boundary as a seed, expands only until the success/failure transition is
+    bracketed, and then refines it with binary search.
+
+    Parameters
+    - controllers: a single controller or a list of controllers to trace.
+    - controller_colors: colors used for the filled success region of each controller.
+    - perturbation_key: field on `UserArgs` to vary.
+    - perturbation_range: perturbation search interval.
+    - p_steps: binary-search refinement depth per x position.
+    - x_range: horizontal-offset interval in meters, relative to the landing position.
+    - x_steps: number of x positions used along the traced boundary.
+    - trials: repeated runs per point; first trial is used for the boundary trace.
+    - save_dir: optional directory to save the figure.
+    - show_plot: if True, calls `plt.show()`.
+
+    Returns
+    - (fig, results_df)
+    """
+    import warnings
+
+    from coco_rocket_lander.algs.pid import PID_controller
+    from coco_rocket_lander.env.env_cfg import UserArgs
+
+    if controllers is None:
+        controllers = [PID_controller([10, 0, 10], [0.1, 0, 0.01], [5, 0.01, 6])]
+    elif isinstance(controllers, Controller):
+        controllers = [controllers]
+    else:
+        controllers = list(controllers)
+
+    if not controllers:
+        raise ValueError("controllers must contain at least one controller")
+
+    if controller_colors is None:
+        controller_colors = [f"C{index}" for index in range(len(controllers))]
+    if len(controller_colors) != len(controllers):
+        raise ValueError("controller_colors must match the number of controllers")
+
+    if trials < 1:
+        raise ValueError("trials must be at least 1")
+    if x_steps < 2:
+        raise ValueError("x_steps must be at least 2")
+    if p_steps < 1:
+        raise ValueError("p_steps must be at least 1")
+
+    x_min, x_max = sorted((float(x_range[0]), float(x_range[1])))
+    p_min, p_max = sorted((float(perturbation_range[0]), float(perturbation_range[1])))
+    x_values = np.linspace(x_min, x_max, int(x_steps))
+
+    import gymnasium as gym
+
+    env_probe = gym.make("coco_rocket_lander/RocketLander-v0", args={})
+    env_probe.reset(seed=0)
+    env_probe_unwrapped = cast(RocketLander, env_probe.unwrapped)
+    landing_pos = env_probe_unwrapped.get_landing_position()
+    cfg = env_probe_unwrapped.cfg
+    env_probe.close()
+
+    landing_x = float(landing_pos[0])
+    landing_y = float(landing_pos[1])
+    default_y_frac = 0.9
+
+    def _build_user_args(x_offset_m: float, perturbation_value: float) -> UserArgs:
+        initial_x_abs = landing_x + float(x_offset_m)
+        initial_x_frac = float(np.clip(initial_x_abs / float(cfg.width), 0.0, 1.0))
+        user_args = UserArgs(initial_position=(initial_x_frac, default_y_frac, 0.0))
+        if not hasattr(user_args, perturbation_key):
+            raise ValueError(f"UserArgs has no attribute '{perturbation_key}'")
+        setattr(user_args, perturbation_key, float(perturbation_value))
+        return user_args
+
+    def _simulate_success(controller: Controller, x_offset_m: float, perturbation_value: float) -> bool:
+        from coco_rocket_lander.env.rocketlander import RocketLander
+        from gymnasium.spaces import Box
+
+        for trial_index in range(int(trials)):
+            user_args = _build_user_args(x_offset_m, perturbation_value)
+            env = gym.make(
+                "coco_rocket_lander/RocketLander-v0",
+                args=user_args,
+            )
+            try:
+                obs, _ = env.reset(seed=69 + trial_index)
+                unwrapped_env = cast(RocketLander, env.unwrapped)
+                action_space = cast(Box, env.action_space)
+
+                while True:
+                    action_demand = np.asarray(controller.compute_action(obs.copy(), unwrapped_env), dtype=float)
+                    action = np.clip(action_demand, action_space.low, action_space.high)
+                    next_obs, _, done, _, _ = env.step(action)
+                    if done:
+                        final_obs = next_obs
+                        break
+                    obs = next_obs
+
+                goal_x, goal_y, _ = unwrapped_env.get_landing_position()
+                return bool(
+                    abs(float(final_obs[0]) - float(goal_x)) <= 1.0
+                    and abs(float(final_obs[1]) - float(goal_y)) <= 0.2
+                )
+            finally:
+                env.close()
+
+        return False
+
+    def _binary_search_boundary(
+        controller: Controller,
+        x_offset_m: float,
+        lower_p: float,
+        upper_p: float,
+        success_is_lower: bool,
+    ) -> tuple[float, bool, bool, int]:
+        lower_success = _simulate_success(controller, x_offset_m, lower_p)
+        upper_success = _simulate_success(controller, x_offset_m, upper_p)
+        evaluations = 2
+
+        if lower_success == upper_success:
+            if lower_success:
+                boundary = upper_p if success_is_lower else lower_p
+            else:
+                boundary = lower_p if success_is_lower else upper_p
+            return boundary, lower_success, upper_success, evaluations
+
+        left = lower_p
+        right = upper_p
+
+        for _ in range(int(p_steps)):
+            midpoint = 0.5 * (left + right)
+            midpoint_success = _simulate_success(controller, x_offset_m, midpoint)
+            evaluations += 1
+            if success_is_lower:
+                if midpoint_success:
+                    left = midpoint
+                else:
+                    right = midpoint
+            else:
+                if midpoint_success:
+                    right = midpoint
+                else:
+                    left = midpoint
+
+        boundary = left if success_is_lower else right
+        return boundary, lower_success, upper_success, evaluations
+
+    def _trace_controller(controller: Controller) -> tuple[list[dict], list[float], bool, float]:
+        controller_rows: list[dict] = []
+        boundary_values: list[float] = []
+
+        first_x = float(x_values[0])
+        low_success = _simulate_success(controller, first_x, p_min)
+        high_success = _simulate_success(controller, first_x, p_max)
+
+        if low_success != high_success:
+            success_is_lower = bool(low_success)
+        else:
+            success_is_lower = bool(low_success)
+
+        first_boundary, _, _, first_evaluations = _binary_search_boundary(
+            controller=controller,
+            x_offset_m=first_x,
+            lower_p=p_min,
+            upper_p=p_max,
+            success_is_lower=success_is_lower,
+        )
+        boundary_values.append(first_boundary)
+        controller_rows.append(
+            {
+                "controller": controller.__class__.__name__,
+                "x_offset_m": first_x,
+                "boundary_perturbation": first_boundary,
+                "success_is_lower": success_is_lower,
+                "evaluations": first_evaluations + 2,
+            }
+        )
+
+        previous_boundary = first_boundary
+        previous_step = max((p_max - p_min) / max(2 * int(p_steps), 4), 1e-4)
+
+        for x_offset_m in map(float, x_values[1:]):
+            seed = float(np.clip(previous_boundary, p_min, p_max))
+            seed_success = _simulate_success(controller, x_offset_m, seed)
+            evaluations = 1
+            local_step = previous_step
+
+            if success_is_lower:
+                if seed_success:
+                    lower_p = seed
+                    upper_p = min(p_max, seed + local_step)
+                    while upper_p < p_max and _simulate_success(controller, x_offset_m, upper_p):
+                        evaluations += 1
+                        lower_p = upper_p
+                        local_step *= 2.0
+                        upper_p = min(p_max, lower_p + local_step)
+                    boundary, _, _, boundary_evals = _binary_search_boundary(
+                        controller=controller,
+                        x_offset_m=x_offset_m,
+                        lower_p=lower_p,
+                        upper_p=upper_p,
+                        success_is_lower=True,
+                    )
+                else:
+                    upper_p = seed
+                    lower_p = max(p_min, seed - local_step)
+                    while lower_p > p_min and not _simulate_success(controller, x_offset_m, lower_p):
+                        evaluations += 1
+                        upper_p = lower_p
+                        local_step *= 2.0
+                        lower_p = max(p_min, upper_p - local_step)
+                    boundary, _, _, boundary_evals = _binary_search_boundary(
+                        controller=controller,
+                        x_offset_m=x_offset_m,
+                        lower_p=lower_p,
+                        upper_p=upper_p,
+                        success_is_lower=True,
+                    )
+            else:
+                if seed_success:
+                    upper_p = seed
+                    lower_p = max(p_min, seed - local_step)
+                    while lower_p > p_min and _simulate_success(controller, x_offset_m, lower_p):
+                        evaluations += 1
+                        upper_p = lower_p
+                        local_step *= 2.0
+                        lower_p = max(p_min, upper_p - local_step)
+                    boundary, _, _, boundary_evals = _binary_search_boundary(
+                        controller=controller,
+                        x_offset_m=x_offset_m,
+                        lower_p=lower_p,
+                        upper_p=upper_p,
+                        success_is_lower=False,
+                    )
+                else:
+                    lower_p = seed
+                    upper_p = min(p_max, seed + local_step)
+                    while upper_p < p_max and not _simulate_success(controller, x_offset_m, upper_p):
+                        evaluations += 1
+                        lower_p = upper_p
+                        local_step *= 2.0
+                        upper_p = min(p_max, lower_p + local_step)
+                    boundary, _, _, boundary_evals = _binary_search_boundary(
+                        controller=controller,
+                        x_offset_m=x_offset_m,
+                        lower_p=lower_p,
+                        upper_p=upper_p,
+                        success_is_lower=False,
+                    )
+
+            boundary = float(np.clip(boundary, p_min, p_max))
+            boundary_values.append(boundary)
+            controller_rows.append(
+                {
+                    "controller": controller.__class__.__name__,
+                    "x_offset_m": x_offset_m,
+                    "boundary_perturbation": boundary,
+                    "success_is_lower": success_is_lower,
+                    "evaluations": evaluations + boundary_evals,
+                }
+            )
+            previous_boundary = boundary
+            previous_step = local_step
+
+        boundary_span = max(boundary_values) - min(boundary_values) if boundary_values else 0.0
+        return controller_rows, boundary_values, success_is_lower, boundary_span
+
+    all_rows: list[dict] = []
+    traced_boundaries: list[tuple[list[float], str, bool]] = []
+
+    for controller, color in zip(controllers, controller_colors):
+        controller_rows, boundary_values, success_is_lower, _ = _trace_controller(controller)
+        for row in controller_rows:
+            row["color"] = color
+        all_rows.extend(controller_rows)
+        traced_boundaries.append((boundary_values, color, success_is_lower))
+
+    results_df = pd.DataFrame.from_records(all_rows)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for controller, color, boundary_data in zip(controllers, controller_colors, traced_boundaries):
+        boundary_values, fill_color, success_is_lower = boundary_data
+        label = controller.__class__.__name__
+        ax.plot(x_values, boundary_values, color=fill_color, linewidth=2.0, label=f"{label} boundary")
+        if success_is_lower:
+            ax.fill_between(x_values, p_min, boundary_values, color=fill_color, alpha=0.16)
+        else:
+            ax.fill_between(x_values, boundary_values, p_max, color=fill_color, alpha=0.16)
+
+    ax.set_xlabel("Initial horizontal offset [m]")
+    ax.set_ylabel(perturbation_key)
+    ax.set_title("Initial position vs. perturbation: landing success map")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+
+    if save_dir is not None:
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        fig.savefig(Path(save_dir) / "initial_pos_shape.png", bbox_inches="tight")
+
+    if show_plot:
+        plt.show()
+    plt.close(fig)
+    return fig, results_df
+
+
+def plot_malfunction_space():
+    pass
